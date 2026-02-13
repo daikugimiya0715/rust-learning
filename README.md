@@ -53,7 +53,7 @@ cargo run
 ## 教材の参照先
 
 - オンライン版: https://doc.rust-lang.org/book/
-- ローカル: `/Users/daichikugimiya/projects/personal/temp/book/`
+- ローカル: `./book/`
 
 ## 進捗
 

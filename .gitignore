@@ -14,3 +14,13 @@
 
 # Environment
 .env
+
+# Book build artifacts
+book/book/
+book/packages/**/target/
+book/.cargo/
+*.o
+*.rmeta
+*.rlib
+*.d
+*.timestamp
