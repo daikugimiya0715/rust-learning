@@ -19,6 +19,9 @@
 
 ## 2026-02-24
 
-- 12章 minigrep（12.1〜12.3）: `sandbox/minigrep/` にリファクタリングの進化をコメント付きで整理
-  - 12.3 のポイント: main.rs は薄く、ロジックは lib.rs へ → テスト可能に
-  - `Config::build` (Result 返却) / `run` (Box\<dyn Error\>) / `unwrap_or_else` + `process::exit`
+- 12章 minigrep（12.1〜12.6）: `sandbox/minigrep/` に全章を整理
+  - 12.3: main.rs は薄く、ロジックは lib.rs へ → テスト可能に
+  - 12.4: TDD で `search` 関数を開発。戻り値のライフタイムは `contents` に紐づく（`query` ではない）
+  - 12.5: `env::var("IGNORE_CASE").is_ok()` で環境変数の有無を bool に。`to_lowercase()` は新しい String を返す
+  - 12.6: エラーは `eprintln!`（stderr）に出力。`> file` でリダイレクトしてもエラーは画面に残る
+  - `Box<dyn Error>` は今は「どんなエラーでも返せる型」と理解すればOK（Box→15章、dyn→17章で詳しく）

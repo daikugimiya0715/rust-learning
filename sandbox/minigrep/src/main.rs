@@ -1,76 +1,68 @@
 // ====================================================================
-// 12章: minigrep — コマンドラインプログラム
+// 12章: minigrep — コマンドラインプログラム (main.rs)
 // ====================================================================
 //
 // 12.1: コマンドライン引数を受け付ける
-//   - std::env::args() でイテレータを取得 → collect() で Vec<String> に
-//   - args[0] = バイナリ名, args[1] = 検索文字列, args[2] = ファイルパス
+//   - std::env::args() → collect() で Vec<String> に
 //
 // 12.2: ファイルを読み込む
-//   - std::fs::read_to_string() で String として読み込み
+//   - std::fs::read_to_string()
 //
 // 12.3: リファクタリング — モジュール性とエラー処理の改善
-//   - main の責任を最小限にする
-//   - Config 構造体で設定をまとめる
-//   - Config::build() で Result を返す（panic ではなく）
-//   - run() 関数にロジックを分離
-//   - lib.rs にロジックを移動（テスト可能に）
+//   - main は薄く: 設定 → 実行 → エラー処理のみ
+//
+// 12.4: TDD で search 関数を開発（lib.rs 側）
+//
+// 12.5: 環境変数で大文字小文字の区別を制御
+//   - IGNORE_CASE=1 cargo run -- <query> <file>
+//
+// 12.6: エラーメッセージを stderr に出力
+//   - println! → eprintln! に変更
+//   - cargo run -- to poem.txt > output.txt で結果だけファイルに保存できる
 //
 // 使い方:
 //   cargo run -- <検索文字列> <ファイルパス>
 //   cargo run -- the poem.txt
+//   IGNORE_CASE=1 cargo run -- the poem.txt     （大文字小文字を無視）
+//   cargo run -- the poem.txt > output.txt       （結果をファイルに保存）
 
 use std::env;
 use std::process;
 
 use minigrep::Config;
-//  ^^^^^^^^ クレート名（Cargo.toml の [package] name）
-// lib.rs の pub な要素を use できる
 
 fn main() {
-    // 12.1: コマンドライン引数の収集
     let args: Vec<String> = env::args().collect();
 
-    // 12.3: Config::build で引数を解析（エラーハンドリング付き）
     let config = Config::build(&args).unwrap_or_else(|err| {
-        // unwrap_or_else:
-        //   Ok → 中身を取り出す（unwrap と同じ）
-        //   Err → クロージャを実行
-        //   unwrap() と違い、パニックせずにカスタム処理ができる
-        println!("Problem parsing arguments: {err}");
+        // 12.6: eprintln! でエラーを stderr に出力
+        // println! だと stdout に出力されるため、
+        // リダイレクト（> output.txt）するとエラーもファイルに入ってしまう
+        eprintln!("Problem parsing arguments: {err}");
         process::exit(1);
-        // process::exit(1) でプログラムを即座に終了（終了コード 1 = エラー）
     });
 
-    // 12.3: run() にロジックを委譲
     if let Err(e) = minigrep::run(config) {
-        // if let Err(e) = ... :
-        //   Ok なら何もしない（戻り値の () は使わない）
-        //   Err ならエラーメッセージを表示して終了
-        println!("Application error: {e}");
+        // 12.6: こちらも eprintln!
+        eprintln!("Application error: {e}");
         process::exit(1);
     }
 }
 
 // ====================================================================
-// リファクタリング前の main（12.2 の状態）— 参考用
+// 12.6: stdout vs stderr
 // ====================================================================
 //
-// fn main() {
-//     let args: Vec<String> = env::args().collect();
+// println!  → stdout（標準出力）— プログラムの「結果」
+// eprintln! → stderr（標準エラー出力）— エラーメッセージ
 //
-//     let query = &args[1];        // 引数不足で panic（index out of bounds）
-//     let file_path = &args[2];    // エラーメッセージが不親切
+// なぜ分けるのか？
+//   $ cargo run -- to poem.txt > output.txt
+//   → stdout はファイルにリダイレクトされる
+//   → stderr は画面に表示される
+//   → エラーが起きたら画面で確認でき、結果だけファイルに保存できる
 //
-//     let contents = fs::read_to_string(file_path)
-//         .expect("Should have been able to read the file");
-//                  // ファイル名が表示されない → 原因特定しにくい
-//
-//     println!("With text:\n{contents}");
-// }
-//
-// 問題点:
-//   1. main が引数解析 + ファイル読み込み + 出力を全部やっている
-//   2. query と file_path が散らばっている（Config にまとめるべき）
-//   3. expect でパニック → ユーザーに不親切なエラーメッセージ
-//   4. エラー処理が各所に分散 → 一箇所にまとめるべき
+// もし println! のままだと:
+//   $ cargo run > output.txt
+//   → "Problem parsing arguments: ..." もファイルに入ってしまう
+//   → 画面には何も表示されず、何が起きたか分からない

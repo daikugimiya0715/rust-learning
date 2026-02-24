@@ -1,18 +1,16 @@
 // ====================================================================
-// 12.3: lib.rs へのロジック分離
+// 12章: minigrep — ライブラリクレート (lib.rs)
 // ====================================================================
 //
-// バイナリクレート(main.rs) とライブラリクレート(lib.rs) を分ける理由:
-//   - main 関数は直接テストできない
-//   - ロジックを lib.rs に移せば、#[cfg(test)] mod tests でテスト可能
-//   - 責任の分離: main.rs は「設定 → 実行 → エラー処理」のみ
+// 12.3: main.rs とlib.rs の責任分離
+//   - main.rs: 設定 → 実行 → エラー処理（薄く保つ）
+//   - lib.rs: ロジック本体（テスト可能）
 //
-// main.rs の責任（最小限に保つ）:
-//   1. コマンドライン引数の解析ロジックを呼ぶ
-//   2. 他の設定を行う
-//   3. lib.rs の run() を呼ぶ
-//   4. run() がエラーを返したら処理する
+// 12.4: TDD で search 関数を開発
+// 12.5: 環境変数で大文字小文字の区別を制御
+// 12.6: エラーメッセージを stderr に出力（main.rs 側）
 
+use std::env;
 use std::error::Error;
 use std::fs;
 
@@ -20,98 +18,124 @@ use std::fs;
 // Config 構造体
 // ====================================================================
 //
-// リファクタリングの進化:
-//
-// 【Step 1】まず関数に抽出（タプルを返す）
-//   fn parse_config(args: &[String]) -> (&str, &str) {
-//       let query = &args[1];
-//       let file_path = &args[2];
-//       (query, file_path)
-//   }
-//   → 問題: タプルだと query と file_path の意味が不明瞭
-//
-// 【Step 2】Config 構造体にまとめる
-//   struct Config { query: String, file_path: String }
-//   fn parse_config(args: &[String]) -> Config { ... }
-//   → 問題: parse_config は Config に紐づくべき → コンストラクタにする
-//
-// 【Step 3】Config::new にする
-//   impl Config {
-//       fn new(args: &[String]) -> Config { ... }
-//   }
-//   → 問題: 引数不足で panic! するのはユーザー体験が悪い
-//
-// 【Step 4（最終形）】Config::build で Result を返す
-//   → new ではなく build という名前にする慣習
-//     （new は「失敗しない」という期待があるため）
+// リファクタリングの進化（12.3）:
+//   【Step 1】parse_config() でタプルを返す → 意味が不明瞭
+//   【Step 2】Config 構造体にまとめる → parse_config は Config に紐づくべき
+//   【Step 3】Config::new にする → panic するのはユーザー体験が悪い
+//   【Step 4】Config::build で Result を返す（最終形）
 
 pub struct Config {
     pub query: String,
     pub file_path: String,
+    pub ignore_case: bool, // 12.5: 大文字小文字を無視するか
 }
 
 impl Config {
     pub fn build(args: &[String]) -> Result<Config, &'static str> {
-        //                                         ^^^^^^^^^^^^^^
-        // &'static str = 文字列リテラルのライフタイム（10章で学んだ）
-        // エラーメッセージは固定文字列なので 'static でOK
-
         if args.len() < 3 {
             return Err("not enough arguments");
-            //     ^^^ panic! ではなく Err を返す
-            //     → 呼び出し側がエラーを適切に処理できる
         }
 
         let query = args[1].clone();
         let file_path = args[2].clone();
-        // clone() を使う理由:
-        //   args は main が所有している Vec<String>
-        //   Config が独自に String を所有すれば、ライフタイム管理が単純になる
-        //   小さな文字列の clone はパフォーマンスへの影響が軽微
 
-        Ok(Config { query, file_path })
+        // 12.5: 環境変数 IGNORE_CASE が設定されているか確認
+        // env::var() は Result を返す
+        //   Ok(値) → 環境変数が存在する
+        //   Err    → 環境変数が存在しない
+        // .is_ok() で bool に変換（値の中身は気にしない）
+        let ignore_case = env::var("IGNORE_CASE").is_ok();
+
+        Ok(Config {
+            query,
+            file_path,
+            ignore_case,
+        })
     }
 }
 
 // ====================================================================
 // run 関数 — プログラムのメインロジック
 // ====================================================================
-//
-// リファクタリング前（main に直書き）:
-//   let contents = fs::read_to_string(file_path)
-//       .expect("Should have been able to read the file");
-//   println!("With text:\n{contents}");
-//
-// リファクタリング後:
-//   - 戻り値を Result にしてエラーを呼び出し側に委譲
-//   - expect → ? 演算子（9章で学んだ）
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
-    //                         ^^^^^^^^^^^^^^^^^^^^^^^^
-    // Result<(), Box<dyn Error>> の意味:
-    //   Ok の場合 : () (ユニット型 = 何も返さない)
-    //   Err の場合: Box<dyn Error> (Error トレイトを実装する任意の型)
-    //
-    // Box<dyn Error> = トレイトオブジェクト（17章で詳しく学ぶ）
-    //   今は「あらゆる種類のエラーを返せる」と理解すればOK
-
     let contents = fs::read_to_string(config.file_path)?;
-    //                                                 ^
-    // ? 演算子: エラーなら即座に Err を返す（9章で学んだ）
-    // expect と違い、パニックせずにエラーを伝播する
 
-    println!("With text:\n{contents}");
+    // 12.5: ignore_case に応じて検索関数を切り替え
+    let results = if config.ignore_case {
+        search_case_insensitive(&config.query, &contents)
+    } else {
+        search(&config.query, &contents)
+    };
+
+    for line in results {
+        println!("{line}");
+    }
 
     Ok(())
 }
 
 // ====================================================================
-// テスト（12.4 以降で追加予定）
+// 12.4: search 関数 — TDD で開発
+// ====================================================================
+//
+// TDD の手順:
+//   1. 失敗するテストを書く（one_result テスト）
+//   2. テストが通る最小限のコードを書く
+//   3. リファクタリング
+//   4. 繰り返し
+//
+// ライフタイム注釈が必要な理由:
+//   戻り値 Vec<&str> の中身は contents のスライスを指している
+//   → contents のライフタイム 'a を戻り値にも付ける必要がある
+//   query は結果に含まれないのでライフタイム不要
+
+pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
+    // contents.lines() — 各行のイテレータを返す
+    // line.contains(query) — その行に query が含まれるか
+    let mut results = Vec::new();
+
+    for line in contents.lines() {
+        if line.contains(query) {
+            results.push(line);
+        }
+    }
+
+    results
+}
+
+// ====================================================================
+// 12.5: 大文字小文字を区別しない検索
+// ====================================================================
+//
+// to_lowercase() で query と line の両方を小文字に変換してから比較
+// 注意: to_lowercase() は新しい String を返す（&str ではない）
+//   → contains に渡すときは &query のように参照にする
+
+pub fn search_case_insensitive<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
+    let query = query.to_lowercase(); // String 型になる
+
+    let mut results = Vec::new();
+
+    for line in contents.lines() {
+        if line.to_lowercase().contains(&query) {
+            //                          ^^^^^^ String → &str に変換
+            results.push(line); // 元の行（大文字小文字そのまま）を返す
+        }
+    }
+
+    results
+}
+
+// ====================================================================
+// テスト
 // ====================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- Config のテスト ---
 
     #[test]
     fn config_build_success() {
@@ -130,5 +154,37 @@ mod tests {
         let args = vec![String::from("program")];
         let result = Config::build(&args);
         assert!(result.is_err());
+    }
+
+    // --- 12.4: search 関数のテスト（大文字小文字を区別） ---
+
+    #[test]
+    fn case_sensitive() {
+        let query = "duct";
+        let contents = "\
+Rust:
+safe, fast, productive.
+Pick three.
+Duct tape.";
+        // "duct" は "productive." にマッチ
+        // "Duct" は大文字なのでマッチしない
+        assert_eq!(vec!["safe, fast, productive."], search(query, contents));
+    }
+
+    // --- 12.5: search_case_insensitive のテスト ---
+
+    #[test]
+    fn case_insensitive() {
+        let query = "rUsT";
+        let contents = "\
+Rust:
+safe, fast, productive.
+Pick three.
+Trust me.";
+        // "rUsT" は大文字小文字無視で "Rust:" と "Trust me." にマッチ
+        assert_eq!(
+            vec!["Rust:", "Trust me."],
+            search_case_insensitive(query, contents)
+        );
     }
 }
