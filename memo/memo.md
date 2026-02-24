@@ -7,3 +7,18 @@
 | [string-types.md](string-types.md) | 文字列型の違い（`str`, `&str`, `String`, `&String`） |
 | [struct.md](struct.md) | 構造体・`Debug`/`Display` トレイト・`derive` マクロ |
 | [compiler.md](compiler.md) | コンパイラの警告（dead_code 警告など） |
+| [error-handling.md](error-handling.md) | エラー処理（`panic!`・`Result`） |
+| [generics-traits-lifetimes.md](generics-traits-lifetimes.md) | ジェネリック型・トレイト・ライフタイム |
+
+## 2026-02-19
+
+- `#[derive(...)]` は手続き的マクロ（derive マクロ）の一種。コンパイラがトレイトの `impl` を自動生成する仕組み
+- `use` はどのモジュール内でも書ける。`mod tests` 内の `use super::*;` はテスト専用構文ではなく、子モジュールから親の要素を持ち込む通常の `use`
+- `lib.rs` でテストからしか使わない非 `pub` 要素は `dead_code` 警告が出る。`#[cfg(test)]` は通常ビルド時にコンパイルされないため「誰も使っていない」扱いになる
+- 11章テスト: `sandbox/adder/` に学習資料を整理済み（ユニットテスト + 結合テスト + common モジュール）
+
+## 2026-02-24
+
+- 12章 minigrep（12.1〜12.3）: `sandbox/minigrep/` にリファクタリングの進化をコメント付きで整理
+  - 12.3 のポイント: main.rs は薄く、ロジックは lib.rs へ → テスト可能に
+  - `Config::build` (Result 返却) / `run` (Box\<dyn Error\>) / `unwrap_or_else` + `process::exit`
