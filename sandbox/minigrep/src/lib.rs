@@ -31,19 +31,27 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn build(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() < 3 {
-            return Err("not enough arguments");
-        }
+    // 13.3: &[String] → impl Iterator<Item = String> に変更
+    //
+    // 改善点:
+    //   - clone() が不要になった（イテレータが String の所有権を直接渡す）
+    //   - インデックスアクセス（args[1], args[2]）→ next() で順番に取得
+    //   - 引数の長さチェックも不要（next() が None を返せばエラー）
+    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
+        // 最初の要素はプログラム名なのでスキップ
+        args.next();
 
-        let query = args[1].clone();
-        let file_path = args[2].clone();
+        let query = match args.next() {
+            Some(arg) => arg,
+            None => return Err("Didn't get a query string"),
+        };
+
+        let file_path = match args.next() {
+            Some(arg) => arg,
+            None => return Err("Didn't get a file path"),
+        };
 
         // 12.5: 環境変数 IGNORE_CASE が設定されているか確認
-        // env::var() は Result を返す
-        //   Ok(値) → 環境変数が存在する
-        //   Err    → 環境変数が存在しない
-        // .is_ok() で bool に変換（値の中身は気にしない）
         let ignore_case = env::var("IGNORE_CASE").is_ok();
 
         Ok(Config {
@@ -79,53 +87,50 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 // 12.4: search 関数 — TDD で開発
 // ====================================================================
 //
-// TDD の手順:
-//   1. 失敗するテストを書く（one_result テスト）
-//   2. テストが通る最小限のコードを書く
-//   3. リファクタリング
-//   4. 繰り返し
-//
 // ライフタイム注釈が必要な理由:
 //   戻り値 Vec<&str> の中身は contents のスライスを指している
 //   → contents のライフタイム 'a を戻り値にも付ける必要がある
-//   query は結果に含まれないのでライフタイム不要
+//
+// 13.3: for ループ → イテレータチェーンに書き換え
+//   lines().filter().collect() で同じ処理をより宣言的に
 
 pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
-    // contents.lines() — 各行のイテレータを返す
-    // line.contains(query) — その行に query が含まれるか
-    let mut results = Vec::new();
-
-    for line in contents.lines() {
-        if line.contains(query) {
-            results.push(line);
-        }
-    }
-
-    results
+    contents
+        .lines()
+        .filter(|line| line.contains(query))
+        .collect()
 }
 
 // ====================================================================
 // 12.5: 大文字小文字を区別しない検索
 // ====================================================================
 //
-// to_lowercase() で query と line の両方を小文字に変換してから比較
-// 注意: to_lowercase() は新しい String を返す（&str ではない）
-//   → contains に渡すときは &query のように参照にする
+// 13.3: こちらもイテレータチェーンに書き換え
 
 pub fn search_case_insensitive<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
-    let query = query.to_lowercase(); // String 型になる
+    let query = query.to_lowercase();
 
-    let mut results = Vec::new();
-
-    for line in contents.lines() {
-        if line.to_lowercase().contains(&query) {
-            //                          ^^^^^^ String → &str に変換
-            results.push(line); // 元の行（大文字小文字そのまま）を返す
-        }
-    }
-
-    results
+    contents
+        .lines()
+        .filter(|line| line.to_lowercase().contains(&query))
+        .collect()
 }
+
+// ====================================================================
+// 13.4: ゼロコスト抽象化（Zero-Cost Abstractions）
+// ====================================================================
+//
+// Rust のイテレータは「ゼロコスト抽象化」の代表例:
+//   - 高レベルな抽象（map, filter, collect）を使っても
+//     手書きの低レベルループと同等の機械語にコンパイルされる
+//   - 「使わない機能にはコストを払わない」「使う機能にはこれ以上ないほど最適化される」
+//
+// 例: オーディオデコーダのベンチマーク
+//   - イテレータ版と手書きループ版で同じ実行速度
+//   - コンパイラがイテレータチェーンを「展開（unroll）」して最適化
+//   - ループの境界チェックも不要と判断し除去する
+//
+// → 安心して高レベルな書き方ができる（パフォーマンスのペナルティなし）
 
 // ====================================================================
 // テスト
@@ -139,12 +144,13 @@ mod tests {
 
     #[test]
     fn config_build_success() {
+        // 13.3: イテレータを直接渡す
         let args = vec![
             String::from("program"),
             String::from("query"),
             String::from("file.txt"),
         ];
-        let config = Config::build(&args).unwrap();
+        let config = Config::build(args.into_iter()).unwrap();
         assert_eq!(config.query, "query");
         assert_eq!(config.file_path, "file.txt");
     }
@@ -152,7 +158,7 @@ mod tests {
     #[test]
     fn config_build_not_enough_args() {
         let args = vec![String::from("program")];
-        let result = Config::build(&args);
+        let result = Config::build(args.into_iter());
         assert!(result.is_err());
     }
 

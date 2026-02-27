@@ -20,6 +20,10 @@
 //   - println! → eprintln! に変更
 //   - cargo run -- to poem.txt > output.txt で結果だけファイルに保存できる
 //
+// 13.3: イテレータを使った改善
+//   - Vec<String> に collect する中間ステップを除去
+//   - env::args() のイテレータを直接 Config::build に渡す
+//
 // 使い方:
 //   cargo run -- <検索文字列> <ファイルパス>
 //   cargo run -- the poem.txt
@@ -32,12 +36,12 @@ use std::process;
 use minigrep::Config;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    let config = Config::build(&args).unwrap_or_else(|err| {
+    // 13.3: env::args() のイテレータを直接渡す
+    // 以前: let args: Vec<String> = env::args().collect();
+    //       Config::build(&args)
+    // 改善: 中間の Vec を作らず、イテレータをそのまま渡す
+    let config = Config::build(env::args()).unwrap_or_else(|err| {
         // 12.6: eprintln! でエラーを stderr に出力
-        // println! だと stdout に出力されるため、
-        // リダイレクト（> output.txt）するとエラーもファイルに入ってしまう
         eprintln!("Problem parsing arguments: {err}");
         process::exit(1);
     });
@@ -61,8 +65,3 @@ fn main() {
 //   → stdout はファイルにリダイレクトされる
 //   → stderr は画面に表示される
 //   → エラーが起きたら画面で確認でき、結果だけファイルに保存できる
-//
-// もし println! のままだと:
-//   $ cargo run > output.txt
-//   → "Problem parsing arguments: ..." もファイルに入ってしまう
-//   → 画面には何も表示されず、何が起きたか分からない
